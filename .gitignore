@@ -7,3 +7,10 @@ build_config.mk
 *_test
 db_bench
 leveldbutil
+
+VisualStudio2015/*
+!VisualStudio2015/leveldb.sln
+!VisualStudio2015/leveldb.vcxproj
+!VisualStudio2015/leveldb.vcxproj.filters
+!VisualStudio2015/leveldb.vcxproj.user
+
