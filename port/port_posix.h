@@ -43,6 +43,7 @@
 #include <snappy.h>
 #endif
 #include <stdint.h>
+#include <unistd.h>
 #include <string>
 #include "port/atomic_pointer.h"
 
