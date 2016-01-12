@@ -6,7 +6,7 @@
 
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are met:
-// 
+//
 //  * Redistributions of source code must retain the above copyright
 //    notice, this list of conditions and the following disclaimer.
 //  * Redistributions in binary form must reproduce the above copyright
@@ -15,7 +15,7 @@
 //  * Neither the name of the University of California, Berkeley nor the
 //    names of its contributors may be used to endorse or promote products
 //    derived from this software without specific prior written permission.
-// 
+//
 // THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND ANY
 // EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
 // WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -34,141 +34,157 @@
 #include <stack>
 #include <cassert>
 
-namespace leveldb {
-namespace port {
-
-
-void InitOnce(OnceType* once, void (*initializer)()) 
+namespace leveldb
+{
+namespace port
 {
 
-	if (InterlockedCompareExchange (once, 1,0) == 0 ) 
-	{
-		initializer();
-	}
+
+void InitOnce(OnceType* once, void (*initializer)())
+{
+
+    if (InterlockedCompareExchange (once, 1,0) == 0 )
+    {
+        initializer();
+    }
 }
 
 // MutexUnlock is a helper that will Release() the |lock| argument in the
 // constructor, and re-Acquire() it in the destructor.
-class MutexUnlock {
- public:
-  explicit MutexUnlock(Mutex *mu) : mu_(mu) {
-    // We require our caller to have the lock.
-    mu_->AssertHeld();
-    mu_->Unlock();
-  }
+class MutexUnlock
+{
+public:
+    explicit MutexUnlock(Mutex *mu) : mu_(mu)
+    {
+        // We require our caller to have the lock.
+        mu_->AssertHeld();
+        mu_->Unlock();
+    }
 
-  ~MutexUnlock() {
-    mu_->Lock();
-  }
+    ~MutexUnlock()
+    {
+        mu_->Lock();
+    }
 
- private:
-  Mutex *const mu_;
-  // No copying allowed
-  MutexUnlock(const MutexUnlock&);
-  void operator=(const MutexUnlock&);
+private:
+    Mutex *const mu_;
+    // No copying allowed
+    MutexUnlock(const MutexUnlock&);
+    void operator=(const MutexUnlock&);
 };
 
 CondVar::CondVar(Mutex* user_lock)
     : user_lock_(*user_lock),
       run_state_(RUNNING),
       allocation_counter_(0),
-      recycling_list_size_(0) {
+      recycling_list_size_(0)
+{
 }
 
-CondVar::~CondVar() {
-  MutexLock auto_lock(&internal_lock_);
-  run_state_ = SHUTDOWN;  // Prevent any more waiting.
-  if (recycling_list_size_ != allocation_counter_) {  // Rare shutdown problem.
-     // There are threads of execution still in this->TimedWait() and yet the
-     // caller has instigated the destruction of this instance :-/.
-     // A common reason for such "overly hasty" destruction is that the caller
-     // was not willing to wait for all the threads to terminate.  Such hasty
-     // actions are a violation of our usage contract, but we'll give the
-     // waiting thread(s) one last chance to exit gracefully (prior to our
-     // destruction).
-     // Note: waiting_list_ *might* be empty, but recycling is still pending.
-     MutexUnlock auto_unlock(&internal_lock_);
-     SignalAll();  // Make sure all waiting threads have been signaled.
-     Sleep(10);  // Give threads a chance to grab internal_lock_.
-     // All contained threads should be blocked on user_lock_ by now :-).
-   }  // Reacquire internal_lock_.
+CondVar::~CondVar()
+{
+    MutexLock auto_lock(&internal_lock_);
+    run_state_ = SHUTDOWN;  // Prevent any more waiting.
+    if (recycling_list_size_ != allocation_counter_)    // Rare shutdown problem.
+    {
+        // There are threads of execution still in this->TimedWait() and yet the
+        // caller has instigated the destruction of this instance :-/.
+        // A common reason for such "overly hasty" destruction is that the caller
+        // was not willing to wait for all the threads to terminate.  Such hasty
+        // actions are a violation of our usage contract, but we'll give the
+        // waiting thread(s) one last chance to exit gracefully (prior to our
+        // destruction).
+        // Note: waiting_list_ *might* be empty, but recycling is still pending.
+        MutexUnlock auto_unlock(&internal_lock_);
+        SignalAll();  // Make sure all waiting threads have been signaled.
+        Sleep(10);  // Give threads a chance to grab internal_lock_.
+        // All contained threads should be blocked on user_lock_ by now :-).
+    }  // Reacquire internal_lock_.
 }
 
-void CondVar::TimedWait(const int64_t max_time_in_ms) {
-  Event* waiting_event;
-  HANDLE handle;
-  {
-    MutexLock auto_lock(&internal_lock_);
-    if (RUNNING != run_state_) return;  // Destruction in progress.
-    waiting_event = GetEventForWaiting();
-    handle = waiting_event->handle();
-    assert(handle);
-  }  // Release internal_lock.
+void CondVar::TimedWait(const int64_t max_time_in_ms)
+{
+    Event* waiting_event;
+    HANDLE handle;
+    {
+        MutexLock auto_lock(&internal_lock_);
+        if (RUNNING != run_state_) return;  // Destruction in progress.
+        waiting_event = GetEventForWaiting();
+        handle = waiting_event->handle();
+        assert(handle);
+    }  // Release internal_lock.
 
-  {
-    MutexUnlock unlock(&user_lock_);  // Release caller's lock
-    WaitForSingleObject(handle, static_cast<DWORD>(max_time_in_ms));
-    // Minimize spurious signal creation window by recycling asap.
-    MutexLock auto_lock(&internal_lock_);
-    RecycleEvent(waiting_event);
-    // Release internal_lock_
-  }  // Reacquire callers lock to depth at entry.
+    {
+        MutexUnlock unlock(&user_lock_);  // Release caller's lock
+        WaitForSingleObject(handle, static_cast<DWORD>(max_time_in_ms));
+        // Minimize spurious signal creation window by recycling asap.
+        MutexLock auto_lock(&internal_lock_);
+        RecycleEvent(waiting_event);
+        // Release internal_lock_
+    }  // Reacquire callers lock to depth at entry.
 }
 
 // SignalAll() is guaranteed to signal all threads that were waiting (i.e., had
 // a cv_event internally allocated for them) before SignalAll() was called.
-void CondVar::SignalAll() {
-  std::stack<HANDLE> handles;  // See FAQ-question-10.
-  {
-    MutexLock auto_lock(&internal_lock_);
-    if (waiting_list_.IsEmpty())
-      return;
-    while (!waiting_list_.IsEmpty())
-      // This is not a leak from waiting_list_.  See FAQ-question 12.
-      handles.push(waiting_list_.PopBack()->handle());
-  }  // Release internal_lock_.
-  while (!handles.empty()) {
-    SetEvent(handles.top());
-    handles.pop();
-  }
+void CondVar::SignalAll()
+{
+    std::stack<HANDLE> handles;  // See FAQ-question-10.
+    {
+        MutexLock auto_lock(&internal_lock_);
+        if (waiting_list_.IsEmpty())
+            return;
+        while (!waiting_list_.IsEmpty())
+            // This is not a leak from waiting_list_.  See FAQ-question 12.
+            handles.push(waiting_list_.PopBack()->handle());
+    }  // Release internal_lock_.
+    while (!handles.empty())
+    {
+        SetEvent(handles.top());
+        handles.pop();
+    }
 }
 
 // Signal() will select one of the waiting threads, and signal it (signal its
 // cv_event).  For better performance we signal the thread that went to sleep
 // most recently (LIFO).  If we want fairness, then we wake the thread that has
 // been sleeping the longest (FIFO).
-void CondVar::Signal() {
-  HANDLE handle;
-  {
-    MutexLock auto_lock(&internal_lock_);
-    if (waiting_list_.IsEmpty())
-      return;  // No one to signal.
-    // Only performance option should be used.
-    // This is not a leak from waiting_list.  See FAQ-question 12.
-     handle = waiting_list_.PopBack()->handle();  // LIFO.
-  }  // Release internal_lock_.
-  SetEvent(handle);
+void CondVar::Signal()
+{
+    HANDLE handle;
+    {
+        MutexLock auto_lock(&internal_lock_);
+        if (waiting_list_.IsEmpty())
+            return;  // No one to signal.
+        // Only performance option should be used.
+        // This is not a leak from waiting_list.  See FAQ-question 12.
+        handle = waiting_list_.PopBack()->handle();  // LIFO.
+    }  // Release internal_lock_.
+    SetEvent(handle);
 }
 
 // GetEventForWaiting() provides a unique cv_event for any caller that needs to
 // wait.  This means that (worst case) we may over time create as many cv_event
 // objects as there are threads simultaneously using this instance's Wait()
 // functionality.
-CondVar::Event* CondVar::GetEventForWaiting() {
-  // We hold internal_lock, courtesy of Wait().
-  Event* cv_event;
-  if (0 == recycling_list_size_) {
-    assert(recycling_list_.IsEmpty());
-    cv_event = new Event();
-    cv_event->InitListElement();
-    allocation_counter_++;
-    assert(cv_event->handle());
-  } else {
-    cv_event = recycling_list_.PopFront();
-    recycling_list_size_--;
-  }
-  waiting_list_.PushBack(cv_event);
-  return cv_event;
+CondVar::Event* CondVar::GetEventForWaiting()
+{
+    // We hold internal_lock, courtesy of Wait().
+    Event* cv_event;
+    if (0 == recycling_list_size_)
+    {
+        assert(recycling_list_.IsEmpty());
+        cv_event = new Event();
+        cv_event->InitListElement();
+        allocation_counter_++;
+        assert(cv_event->handle());
+    }
+    else
+    {
+        cv_event = recycling_list_.PopFront();
+        recycling_list_size_--;
+    }
+    waiting_list_.PushBack(cv_event);
+    return cv_event;
 }
 
 // RecycleEvent() takes a cv_event that was previously used for Wait()ing, and
@@ -176,14 +192,15 @@ CondVar::Event* CondVar::GetEventForWaiting() {
 // Note that there is a tiny chance that the cv_event is still signaled when we
 // obtain it, and that can cause spurious signals (if/when we re-use the
 // cv_event), but such is quite rare (see FAQ-question-5).
-void CondVar::RecycleEvent(Event* used_event) {
-  // We hold internal_lock, courtesy of Wait().
-  // If the cv_event timed out, then it is necessary to remove it from
-  // waiting_list_.  If it was selected by SignalAll() or Signal(), then it is
-  // already gone.
-  used_event->Extract();  // Possibly redundant
-  recycling_list_.PushBack(used_event);
-  recycling_list_size_++;
+void CondVar::RecycleEvent(Event* used_event)
+{
+    // We hold internal_lock, courtesy of Wait().
+    // If the cv_event timed out, then it is necessary to remove it from
+    // waiting_list_.  If it was selected by SignalAll() or Signal(), then it is
+    // already gone.
+    used_event->Extract();  // Possibly redundant
+    recycling_list_.PushBack(used_event);
+    recycling_list_size_++;
 }
 //------------------------------------------------------------------------------
 // The next section provides the implementation for the private Event class.
@@ -214,109 +231,127 @@ void CondVar::RecycleEvent(Event* used_event) {
 // Multiple containers also makes correctness more difficult to assert, as
 // data is redundantly stored and maintained, which is generally evil.
 
-CondVar::Event::Event() : handle_(0) {
-  next_ = prev_ = this;  // Self referencing circular.
+CondVar::Event::Event() : handle_(0)
+{
+    next_ = prev_ = this;  // Self referencing circular.
 }
 
-CondVar::Event::~Event() {
-  if (0 == handle_) {
-    // This is the list holder
-    while (!IsEmpty()) {
-      Event* cv_event = PopFront();
-      assert(cv_event->ValidateAsItem());
-      delete cv_event;
+CondVar::Event::~Event()
+{
+    if (0 == handle_)
+    {
+        // This is the list holder
+        while (!IsEmpty())
+        {
+            Event* cv_event = PopFront();
+            assert(cv_event->ValidateAsItem());
+            delete cv_event;
+        }
     }
-  }
-  assert(IsSingleton());
-  if (0 != handle_) {
-    int ret_val = CloseHandle(handle_);
-    assert(ret_val);
-  }
+    assert(IsSingleton());
+    if (0 != handle_)
+    {
+        int ret_val = CloseHandle(handle_);
+        assert(ret_val);
+    }
 }
 
 // Change a container instance permanently into an element of a list.
-void CondVar::Event::InitListElement() {
-  assert(!handle_);
-  handle_ = CreateEvent(NULL, false, false, NULL);
-  assert(handle_);
+void CondVar::Event::InitListElement()
+{
+    assert(!handle_);
+    handle_ = CreateEvent(NULL, false, false, NULL);
+    assert(handle_);
 }
 
 // Methods for use on lists.
-bool CondVar::Event::IsEmpty() const {
-  assert(ValidateAsList());
-  return IsSingleton();
+bool CondVar::Event::IsEmpty() const
+{
+    assert(ValidateAsList());
+    return IsSingleton();
 }
 
-void CondVar::Event::PushBack(Event* other) {
-  assert(ValidateAsList());
-  assert(other->ValidateAsItem());
-  assert(other->IsSingleton());
-  // Prepare other for insertion.
-  other->prev_ = prev_;
-  other->next_ = this;
-  // Cut into list.
-  prev_->next_ = other;
-  prev_ = other;
-  assert(ValidateAsDistinct(other));
+void CondVar::Event::PushBack(Event* other)
+{
+    assert(ValidateAsList());
+    assert(other->ValidateAsItem());
+    assert(other->IsSingleton());
+    // Prepare other for insertion.
+    other->prev_ = prev_;
+    other->next_ = this;
+    // Cut into list.
+    prev_->next_ = other;
+    prev_ = other;
+    assert(ValidateAsDistinct(other));
 }
 
-CondVar::Event* CondVar::Event::PopFront() {
-  assert(ValidateAsList());
-  assert(!IsSingleton());
-  return next_->Extract();
+CondVar::Event* CondVar::Event::PopFront()
+{
+    assert(ValidateAsList());
+    assert(!IsSingleton());
+    return next_->Extract();
 }
 
-CondVar::Event* CondVar::Event::PopBack() {
-  assert(ValidateAsList());
-  assert(!IsSingleton());
-  return prev_->Extract();
+CondVar::Event* CondVar::Event::PopBack()
+{
+    assert(ValidateAsList());
+    assert(!IsSingleton());
+    return prev_->Extract();
 }
 
 // Methods for use on list elements.
 // Accessor method.
-HANDLE CondVar::Event::handle() const {
-  assert(ValidateAsItem());
-  return handle_;
+HANDLE CondVar::Event::handle() const
+{
+    assert(ValidateAsItem());
+    return handle_;
 }
 
 // Pull an element from a list (if it's in one).
-CondVar::Event* CondVar::Event::Extract() {
-  assert(ValidateAsItem());
-  if (!IsSingleton()) {
-    // Stitch neighbors together.
-    next_->prev_ = prev_;
-    prev_->next_ = next_;
-    // Make extractee into a singleton.
-    prev_ = next_ = this;
-  }
-  assert(IsSingleton());
-  return this;
+CondVar::Event* CondVar::Event::Extract()
+{
+    assert(ValidateAsItem());
+    if (!IsSingleton())
+    {
+        // Stitch neighbors together.
+        next_->prev_ = prev_;
+        prev_->next_ = next_;
+        // Make extractee into a singleton.
+        prev_ = next_ = this;
+    }
+    assert(IsSingleton());
+    return this;
 }
 
 // Method for use on a list element or on a list.
-bool CondVar::Event::IsSingleton() const {
-  assert(ValidateLinks());
-  return next_ == this;
+bool CondVar::Event::IsSingleton() const
+{
+    assert(ValidateLinks());
+    return next_ == this;
 }
 
 // Provide pre/post conditions to validate correct manipulations.
-bool CondVar::Event::ValidateAsDistinct(Event* other) const {
-  return ValidateLinks() && other->ValidateLinks() && (this != other);
+bool CondVar::Event::ValidateAsDistinct(Event* other) const
+{
+    return ValidateLinks() && other->ValidateLinks() && (this != other);
 }
 
-bool CondVar::Event::ValidateAsItem() const {
-  return (0 != handle_) && ValidateLinks();
+bool CondVar::Event::ValidateAsItem() const
+{
+    return (0 != handle_) && ValidateLinks();
 }
 
-bool CondVar::Event::ValidateAsList() const {
-  return (0 == handle_) && ValidateLinks();
+bool CondVar::Event::ValidateAsList() const
+{
+    return (0 == handle_) && ValidateLinks();
 }
 
-bool CondVar::Event::ValidateLinks() const {
-  // Make sure both of our neighbors have links that point back to us.
-  // We don't do the O(n) check and traverse the whole loop, and instead only
-  // do a local check to (and returning from) our immediate neighbors.
-  return (next_->prev_ == this) && (prev_->next_ == this);
+bool CondVar::Event::ValidateLinks() const
+{
+    // Make sure both of our neighbors have links that point back to us.
+    // We don't do the O(n) check and traverse the whole loop, and instead only
+    // do a local check to (and returning from) our immediate neighbors.
+    return (next_->prev_ == this) && (prev_->next_ == this);
 }
 
 
