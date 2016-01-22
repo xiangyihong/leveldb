@@ -17,3 +17,10 @@ VisualStudio2015/*
 tags
 *~
 *.orig
+
+!VisualStudio2015/leveldb_usage_test
+VisualStudio2015/leveldb_usage_test/Debug
+VisualStudio2015/leveldb_usage_test/Release
+VisualStudio2015/leveldb_usage_test/test
+
+
