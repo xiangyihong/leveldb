@@ -105,7 +105,7 @@ Options SanitizeOptions(const std::string& dbname,
     result.comparator = icmp;
     result.filter_policy = (src.filter_policy != NULL) ? ipolicy : NULL;
     ClipToRange(&result.max_open_files,    64 + kNumNonTableCacheFiles, 50000);
-    ClipToRange(&result.write_buffer_size, 64<<10,                      1<<30);
+	ClipToRange(&result.write_buffer_size, 64 << 10, 1 << 30);
     ClipToRange(&result.block_size,        1<<10,                       4<<20);
     if (result.info_log == NULL)
     {
@@ -601,7 +601,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
     CompactionStats stats;
     stats.micros = env_->NowMicros() - start_micros;
     stats.bytes_written = meta.file_size;
-    stats_[level].Add(stats);
+	stats_[level].Add(stats);
     return s;
 }
 
@@ -1414,7 +1414,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch)
     {
         w.cv.Wait();
     }
-    if (w.done)
+    if (w.done)  // yxiang, 2016-2-21 00:50:47, done by other threads
     {
         return w.status;
     }
@@ -1434,6 +1434,13 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch)
         // and protects against concurrent loggers and concurrent writes
         // into mem_.
         {
+			// yxiang, 2016-2-21 14:20:38
+			// Why mutex_ can be unlocked here?
+			// Writer w would go here iff w is not done(by BuildBatchGroup) by other thread and it happens to be the front of writer_
+			// w is still the head of writer_, which means other thread will have to wait till w is removed from writer_
+			// So no other concurrent write would happen even mutex_ is unlocked.
+			// It also means only one write operation can be performed at a time for the entire DB.
+			// Why do unlock? I guess there are other operations needs this lock to perform some actions.
             mutex_.Unlock();
             status = log_->AddRecord(WriteBatchInternal::Contents(updates));
             bool sync_error = false;
@@ -1471,7 +1478,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch)
         {
             ready->status = status;
             ready->done = true;
-            ready->cv.Signal();
+            ready->cv.Signal(); // yxiang, 2016-2-21 13:56:21, signal any waiting write(in this method)
         }
         if (ready == last_writer) break;
     }
@@ -1514,6 +1521,9 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer)
         if (w->sync && !first->sync)
         {
             // Do not include a sync write into a batch handled by a non-sync write.
+			// yxiang, 2016-2-21 13:47:20
+			// sync can include non-sync, sync
+			// non-sync can not include sync
             break;
         }
 
@@ -1530,6 +1540,9 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer)
             if (result == first->batch)
             {
                 // Switch to temporary batch instead of disturbing caller's batch
+				// yxiang, 2016-2-21 13:50:06
+				// for one write, use caller's batch
+				// otherwise, use db's tmp_batch_
                 result = tmp_batch_;
                 assert(WriteBatchInternal::Count(result) == 0);
                 WriteBatchInternal::Append(result, first->batch);
@@ -1578,14 +1591,26 @@ Status DBImpl::MakeRoomForWrite(bool force)
             // There is room in current memtable
             break;
         }
-        else if (imm_ != NULL)
+		// yxiang, 2016-2-21 01:26:29
+		// imm_ can only be set to non-NULL value in the following "else" clause
+		// If imm_ != NULL, another background compaction thread must be actived and trying to compact imm_ (MaybeScheduleCompaction is called in the following else clause)
+        // bg_cv_.Wait will be signaled when background compaction is finished.
+		else if (imm_ != NULL)
         {
             // We have filled up the current memtable, but the previous
             // one is still being compacted, so we wait.
             Log(options_.info_log, "Current memtable full; waiting...\n");
-            bg_cv_.Wait();
+			bg_cv_.Wait();
         }
-        else if (versions_->NumLevelFiles(0) >= config::kL0_StopWritesTrigger)
+		// yxiang, 2016-2-21 01:33:57
+		// TODO: When will this Wait be signaled? Is it for sure that a background compaction thread is running if this clause is true?
+		// If this caluse is hit, imm_ must be NULL.
+		// If imm_ is NULL, MaybeScheduleCompaction must have be called to make imm_ NULL. 
+		// In BackgroundCall, after write imm_ to level 0 file, it would check whether there are too many level 0 files. 
+		// If so, do compaction. 
+		// So if this clause is hit, there must be a background compaction thread. This thread has finished writing memory table to level 0 file,
+		// and it is working on compacting level 0 files.
+		else if (versions_->NumLevelFiles(0) >= config::kL0_StopWritesTrigger)
         {
             // There are too many level-0 files.
             Log(options_.info_log, "Too many L0 files; waiting...\n");

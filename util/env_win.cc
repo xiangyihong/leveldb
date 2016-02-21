@@ -639,7 +639,11 @@ public:
     virtual Status NewLogger(const std::string& fname, Logger** result)
     {
         *result = NULL;
-        FILE* f = fopen(fname.c_str(), "wt");
+#ifdef YXIANG_MODIFICATION
+		FILE* f = fopen(fname.c_str(), "at");
+#else
+		FILE* f = fopen(fname.c_str(), "wt");
+#endif
         if (f == NULL)
             return Status::IOError(fname, strerror(errno));
         *result = new WinLogger(f);
