@@ -849,11 +849,11 @@ public:
     }
 
     // Save the current state in *v.
-	// yxiang, 2016-2-20 01:20:00
-	// Why is only added_files used in levels_[level]?
-	// It uses a base version and a versionedit to construct a new version.
-	// A file in base version or added_files may be added to new version if it is not in levels_[level].deleted_files (MaybeAddFile)
-	// So we only needs to iterate files in base version and added_files to construct a new version (This method actually use a more elegate way to iterate files in base version)
+    // yxiang, 2016-2-20 01:20:00
+    // Why is only added_files used in levels_[level]?
+    // It uses a base version and a versionedit to construct a new version.
+    // A file in base version or added_files may be added to new version if it is not in levels_[level].deleted_files (MaybeAddFile)
+    // So we only needs to iterate files in base version and added_files to construct a new version (This method actually use a more elegate way to iterate files in base version)
     void SaveTo(Version* v)
     {
         BySmallestKey cmp;
@@ -1029,16 +1029,16 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu)
 
     // Unlock during expensive MANIFEST log write
     {
-		// yxiang, 2016-2-21 17:38:56
-		// Why unlock is OK here?
-		// LogAndApply is called when
-		// 1. opening db
-		// 2. doing compaction work via background compaction thread.
+        // yxiang, 2016-2-21 17:38:56
+        // Why unlock is OK here?
+        // LogAndApply is called when
+        // 1. opening db
+        // 2. doing compaction work via background compaction thread.
 
-		// for 1, definitely only one thread is accessing this method
-		// for 2. we only have one background compaction thread, so, again, only one thread is accessing this method
+        // for 1, definitely only one thread is accessing this method
+        // for 2. we only have one background compaction thread, so, again, only one thread is accessing this method
 
-		// so writing to descriptor_file(descriptor_log_->AddRecord, descriptor_file->Sync) would be safe when no lock acquired.
+        // so writing to descriptor_file(descriptor_log_->AddRecord, descriptor_file->Sync) would be safe when no lock acquired.
         mu->Unlock();
 
         // Write new record to MANIFEST log

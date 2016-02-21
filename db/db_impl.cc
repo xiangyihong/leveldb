@@ -1434,13 +1434,13 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch)
         // and protects against concurrent loggers and concurrent writes
         // into mem_.
         {
-			// yxiang, 2016-2-21 14:20:38
-			// Why mutex_ can be unlocked here?
-			// Writer w would go here iff w is not done(by BuildBatchGroup) by other thread and it happens to be the front of writer_
-			// w is still the head of writer_, which means other thread will have to wait till w is removed from writer_
-			// So no other concurrent write would happen even mutex_ is unlocked.
-			// It also means only one write operation can be performed at a time for the entire DB.
-			// Why do unlock? I guess there are other operations needs this lock to perform some actions.
+            // yxiang, 2016-2-21 14:20:38
+            // Why mutex_ can be unlocked here?
+            // Writer w would go here iff w is not done(by BuildBatchGroup) by other thread and it happens to be the front of writer_
+            // w is still the head of writer_, which means other thread will have to wait till w is removed from writer_
+            // So no other concurrent write would happen even mutex_ is unlocked.
+            // It also means only one write operation can be performed at a time for the entire DB.
+            // Why do unlock? I guess there are other operations needs this lock to perform some actions.
             mutex_.Unlock();
             status = log_->AddRecord(WriteBatchInternal::Contents(updates));
             bool sync_error = false;
@@ -1521,9 +1521,9 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer)
         if (w->sync && !first->sync)
         {
             // Do not include a sync write into a batch handled by a non-sync write.
-			// yxiang, 2016-2-21 13:47:20
-			// sync can include non-sync, sync
-			// non-sync can not include sync
+            // yxiang, 2016-2-21 13:47:20
+            // sync can include non-sync, sync
+            // non-sync can not include sync
             break;
         }
 
@@ -1540,9 +1540,9 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer)
             if (result == first->batch)
             {
                 // Switch to temporary batch instead of disturbing caller's batch
-				// yxiang, 2016-2-21 13:50:06
-				// for one write, use caller's batch
-				// otherwise, use db's tmp_batch_
+                // yxiang, 2016-2-21 13:50:06
+                // for one write, use caller's batch
+                // otherwise, use db's tmp_batch_
                 result = tmp_batch_;
                 assert(WriteBatchInternal::Count(result) == 0);
                 WriteBatchInternal::Append(result, first->batch);
@@ -1591,9 +1591,9 @@ Status DBImpl::MakeRoomForWrite(bool force)
             // There is room in current memtable
             break;
         }
-		// yxiang, 2016-2-21 01:26:29
-		// imm_ can only be set to non-NULL value in the following "else" clause
-		// If imm_ != NULL, another background compaction thread must be actived and trying to compact imm_ (MaybeScheduleCompaction is called in the following else clause)
+        // yxiang, 2016-2-21 01:26:29
+        // imm_ can only be set to non-NULL value in the following "else" clause
+        // If imm_ != NULL, another background compaction thread must be actived and trying to compact imm_ (MaybeScheduleCompaction is called in the following else clause)
         // bg_cv_.Wait will be signaled when background compaction is finished.
 		else if (imm_ != NULL)
         {
@@ -1602,14 +1602,14 @@ Status DBImpl::MakeRoomForWrite(bool force)
             Log(options_.info_log, "Current memtable full; waiting...\n");
 			bg_cv_.Wait();
         }
-		// yxiang, 2016-2-21 01:33:57
-		// TODO: When will this Wait be signaled? Is it for sure that a background compaction thread is running if this clause is true?
-		// If this caluse is hit, imm_ must be NULL.
-		// If imm_ is NULL, MaybeScheduleCompaction must have be called to make imm_ NULL. 
-		// In BackgroundCall, after write imm_ to level 0 file, it would check whether there are too many level 0 files. 
-		// If so, do compaction. 
-		// So if this clause is hit, there must be a background compaction thread. This thread has finished writing memory table to level 0 file,
-		// and it is working on compacting level 0 files.
+        // yxiang, 2016-2-21 01:33:57
+        // TODO: When will this Wait be signaled? Is it for sure that a background compaction thread is running if this clause is true?
+        // If this caluse is hit, imm_ must be NULL.
+        // If imm_ is NULL, MaybeScheduleCompaction must have be called to make imm_ NULL. 
+        // In BackgroundCall, after write imm_ to level 0 file, it would check whether there are too many level 0 files. 
+        // If so, do compaction. 
+        // So if this clause is hit, there must be a background compaction thread. This thread has finished writing memory table to level 0 file,
+        // and it is working on compacting level 0 files.
 		else if (versions_->NumLevelFiles(0) >= config::kL0_StopWritesTrigger)
         {
             // There are too many level-0 files.
