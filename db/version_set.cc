@@ -1553,6 +1553,12 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c)
     return result;
 }
 
+// yxiang, 2016-2-22 01:12:10
+// summary:
+// 1. pick a file in level to compact
+// 2. determine files in level+1 to compact
+// 3. try to expand files in level to compact (according to the key range in level+1)
+// 4. determine files in level+2 for this compaction(as boundry, does not take part in compaction)
 Compaction* VersionSet::PickCompaction()
 {
     Compaction* c;

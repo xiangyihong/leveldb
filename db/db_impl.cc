@@ -1040,6 +1040,15 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact)
     return versions_->LogAndApply(compact->compaction->edit(), &mutex_);
 }
 
+// yxiang, 2016-2-22 01:08:12
+// summary:
+// 1. Iteratate level, level+1 keys
+// 2. Compact imm_ if any
+// 3. Check if should FinishCompactionOutputFile
+// 4. Determine if should drop key
+// 5. if not to drop key, add key to table
+// 6. Check whether table is full. If so, FinishCompactionOutputFile
+// 7. After iteration, apply version edit to a new version.
 Status DBImpl::DoCompactionWork(CompactionState* compact)
 {
     const uint64_t start_micros = env_->NowMicros();
@@ -1121,6 +1130,10 @@ Status DBImpl::DoCompactionWork(CompactionState* compact)
                 last_sequence_for_key = kMaxSequenceNumber;
             }
 
+            // yxiang, 2016-2-22 00:32:37
+            // if last_sequence_for_key is not kMaxSequenceNumber,
+            // current_user_key must be the same as prev one
+            // We can safely drop current_user_key if current_user_key's sequence is smaller than snapshot
             if (last_sequence_for_key <= compact->smallest_snapshot)
             {
                 // Hidden by an newer entry for same user key
@@ -1401,6 +1414,14 @@ Status DBImpl::Delete(const WriteOptions& options, const Slice& key)
     return DB::Delete(options, key);
 }
 
+// yxiang, 2016-2-22 01:15:29
+// summary:
+// 1. current batch is the header of writers_ and current batch is not done by other thread
+// 2. Call MakeRoomForWrite to make sure that current batch can be added to mem_
+// 3. Call BuildBatchGroup to combine write batch as many as possible
+// 4. write batch to log
+// 5. write batch to mem_
+// 6. Signal other thread to write
 Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch)
 {
     Writer w(&mutex_);
