@@ -151,6 +151,18 @@ private:
     std::deque<Writer*> writers_;
     WriteBatch* tmp_batch_;
 
+    // yxiang, 2016-3-5 00:55:26
+    // 1. What does snapshot do?
+    // For a Get operation, if snapshot is set in ReadOption,
+    // it means user wants to find the key before the snapshot
+    // Any operations(delete, update) on that key after the snapshot should not be returned
+    // 2. How does compaction handle snapshot?
+    // For compaction, it should at least keep the latest keys before snapshots_->oldest(),
+    // so that the Get method can still find the key/value for snapshot stored in snapshots_->oldest()
+    // If there are three operations on key "test_key": update, update, delete before the oldest snapshot,
+    // and some more operations after the oldest snapshot
+    // we can discard the first two update operations when doing compaction, and only keep the delete operation for "test_key" to new table.
+    // Any operations after the oldest snapshot should be saved to new compaction table no matter what.
     SnapshotList snapshots_;
 
     // Set of table files to protect from deletion because they are

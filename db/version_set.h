@@ -60,6 +60,15 @@ extern bool SomeFileOverlapsRange(
     const Slice* smallest_user_key,
     const Slice* largest_user_key);
 
+
+// yxiang, 2016-3-5 01:15:17
+// What is Version
+// Version is a set of table files
+// For a Get operation on DB, there may be compactions during the Get
+// new table files are generated for DB
+// We must make sure table files are not deleted for the Get operation
+// There is also a Get method in Version, we use it to find key/value on a particular version
+// Files recored by this version would not be deleted if some compaction operations are performed during the Get operation
 class Version
 {
 public:

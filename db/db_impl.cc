@@ -1340,6 +1340,14 @@ Status DBImpl::Get(const ReadOptions& options,
 
     // Unlock while reading from files and memtables
     {
+        // yxiang, 2016-3-5 01:10:35
+        // mem and imm are Refed before, so they would not be freed until unrefed
+        // imm is read only
+        // mem can only be appended, key/value in mem cannot be modified
+        // So it is OK to search mem/imm table without a lock
+        // Also, table files can not be modifed, though they can be deleted
+        // Table files recored by current(version) would not be deleted even there are compactions(new tables files generated, old table files may not be deleted if they are recored by some version object)
+        // So also OK not to have a lock for version's Get operation
         mutex_.Unlock();
         // First look in the memtable, then in the immutable memtable (if any).
         LookupKey lkey(key, snapshot);
