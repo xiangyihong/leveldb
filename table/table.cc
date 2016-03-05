@@ -270,6 +270,18 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k,
                           void* arg,
                           void (*saver)(void*, const Slice&, const Slice&))
 {
+    // yxiang, 2016-3-5 22:19:50
+    // The logic of finding a key from table
+    // 1. from index block, find the smallest key that equals or greater than target
+    // 2. Go to the correspoding data block, find the smallest key that equals or greater than target
+    // 3. return that key
+    
+    // in index block, a key represents the largest key of a block. If we find the smallest key >= target,
+    // we can be sure that target cannot be anywhere else but that correspoding data block.
+    // Say the smallest key >= target represents data block N
+    // so largest key in data block N-1 is smaller than target
+    // smallest key in data block N+1 is greater than target
+
     Status s;
     Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
     iiter->Seek(k);

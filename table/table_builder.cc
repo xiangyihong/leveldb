@@ -113,6 +113,8 @@ void TableBuilder::Add(const Slice& key, const Slice& value)
         r->options.comparator->FindShortestSeparator(&r->last_key, key);
         std::string handle_encoding;
         r->pending_handle.EncodeTo(&handle_encoding);
+        // yxiang, 2016-3-5 22:14:09
+        // In index block, the key is the last key of the data block
         r->index_block.Add(r->last_key, Slice(handle_encoding));
         r->pending_index_entry = false;
     }

@@ -226,6 +226,17 @@ public:
             }
             else
             {
+                // yxiang, 2016-3-5 19:09:55
+                // It is OK that we choose right = mid - 1 even if mid_key == target
+                // if mid_key == target and we do right = mid - 1
+                // we can be sure the final value of left would be mid - 1
+                // In the linear search part, we would search the would left block, and,
+                // Of cource, can not find the target key
+                // However, the search would go to the next block, and find that the first key == target
+                // Hence return the right value
+                // It is, however, a slice performance degration
+                // TODO, try to eliminate the performance degration.
+
                 // Key at "mid" is >= "target".  Therefore all blocks at or
                 // after "mid" are uninteresting.
                 right = mid - 1;
